@@ -28,12 +28,7 @@ func normalizeURL(toParse string) (string, error) {
 	return normalized, nil
 }
 
-func getURLsFromHTML(htmlBody, rawBaseURL string) ([]string, error) {
-	base, err := url.Parse(rawBaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("failure parsing baseurl: %w", err)
-	}
-
+func getURLsFromHTML(htmlBody string, baseURL *url.URL) ([]string, error) {
 	reader := strings.NewReader(htmlBody)
 	tree, err := html.Parse(reader)
 	if err != nil {
@@ -51,7 +46,7 @@ func getURLsFromHTML(htmlBody, rawBaseURL string) ([]string, error) {
 						fmt.Printf("failure parsing url: %v\n", err)
 						continue
 					}
-					resolved := base.ResolveReference(parsed)
+					resolved := baseURL.ResolveReference(parsed)
 					if resolved.Scheme == "http" || resolved.Scheme == "https" {
 						urls = append(urls, resolved.String())
 					}
@@ -97,18 +92,42 @@ func getHTML(rawURL string) (string, error) {
 	return string(body), nil
 }
 
-func crawlPage(rawBaseURL, rawCurrentURL string, pages map[string]int) {
-	parsedBase, err := url.Parse(rawBaseURL)
-	if err != nil {
-		fmt.Printf("Error crawlPage: couldn't parse URL '%s': %v\n", rawBaseURL, err)
+func (cfg *config) addPageVisit(normalizedUrl string) (isFirst bool) {
+	cfg.mu.Lock()
+	defer cfg.mu.Unlock()
+
+	if _, ok := cfg.pages[normalizedUrl]; ok {
+		cfg.pages[normalizedUrl]++
+		return false
+	}
+	cfg.pages[normalizedUrl] = 1
+	return true
+}
+
+func (cfg *config) getLengthPages() int {
+	cfg.mu.Lock()
+	defer cfg.mu.Unlock()
+
+	return len(cfg.pages)
+}
+
+func (cfg *config) crawlPage(rawCurrentURL string) {
+	defer func() {
+		<-cfg.concurrencyControl
+		cfg.wg.Done()
+	}()
+	cfg.concurrencyControl <- struct{}{}
+
+	if cfg.getLengthPages() >= cfg.maxPages {
 		return
 	}
+
 	parsedCurrent, err := url.Parse(rawCurrentURL)
 	if err != nil {
 		fmt.Printf("Error crawlPage: couldn't parse URL '%s': %v\n", rawCurrentURL, err)
 		return
 	}
-	if parsedBase.Hostname() != parsedCurrent.Hostname() {
+	if cfg.baseURL.Hostname() != parsedCurrent.Hostname() {
 		return
 	}
 
@@ -118,11 +137,10 @@ func crawlPage(rawBaseURL, rawCurrentURL string, pages map[string]int) {
 		return
 	}
 
-	if _, ok := pages[normalisedCurrent]; ok {
-		pages[normalisedCurrent]++
+	isFirst := cfg.addPageVisit(normalisedCurrent)
+	if !isFirst {
 		return
 	}
-	pages[normalisedCurrent] = 1
 
 	fmt.Printf("Crawling %s...\n", rawCurrentURL)
 	html, err := getHTML(rawCurrentURL)
@@ -130,13 +148,14 @@ func crawlPage(rawBaseURL, rawCurrentURL string, pages map[string]int) {
 		fmt.Printf("Error - getHTML: %v\n", err)
 		return
 	}
-	urls, err := getURLsFromHTML(html, rawBaseURL)
+	urls, err := getURLsFromHTML(html, cfg.baseURL)
 	if err != nil {
 		fmt.Printf("Error - getURLsFromHTML: %v\n", err)
 		return
 	}
 
 	for _, link := range urls {
-		crawlPage(rawBaseURL, link, pages)
+		cfg.wg.Add(1)
+		go cfg.crawlPage(link)
 	}
 }
