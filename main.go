@@ -6,17 +6,7 @@ import (
 	"net/url"
 	"os"
 	"strconv"
-	"sync"
 )
-
-type config struct {
-	pages              map[string]int
-	baseURL            *url.URL
-	mu                 *sync.Mutex
-	concurrencyControl chan struct{}
-	wg                 *sync.WaitGroup
-	maxPages           int
-}
 
 func main() {
 	args := os.Args
@@ -39,14 +29,7 @@ func main() {
 		log.Fatal("invalid url provided")
 	}
 
-	cfg := config{
-		pages:              map[string]int{},
-		baseURL:            parsedBase,
-		mu:                 &sync.Mutex{},
-		concurrencyControl: make(chan struct{}, maxConcurrency),
-		wg:                 &sync.WaitGroup{},
-		maxPages:           maxPages,
-	}
+	cfg := configure(parsedBase, maxConcurrency, maxPages)
 
 	fmt.Printf("Starting crawl of: %s...\n", baseURL)
 
@@ -54,7 +37,5 @@ func main() {
 	go cfg.crawlPage(baseURL)
 
 	cfg.wg.Wait()
-	for k, v := range cfg.pages {
-		fmt.Printf("Page %s, count: %d\n", k, v)
-	}
+	cfg.printReport()
 }

@@ -92,25 +92,6 @@ func getHTML(rawURL string) (string, error) {
 	return string(body), nil
 }
 
-func (cfg *config) addPageVisit(normalizedUrl string) (isFirst bool) {
-	cfg.mu.Lock()
-	defer cfg.mu.Unlock()
-
-	if _, ok := cfg.pages[normalizedUrl]; ok {
-		cfg.pages[normalizedUrl]++
-		return false
-	}
-	cfg.pages[normalizedUrl] = 1
-	return true
-}
-
-func (cfg *config) getLengthPages() int {
-	cfg.mu.Lock()
-	defer cfg.mu.Unlock()
-
-	return len(cfg.pages)
-}
-
 func (cfg *config) crawlPage(rawCurrentURL string) {
 	defer func() {
 		<-cfg.concurrencyControl
