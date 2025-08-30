@@ -1,0 +1,9 @@
+.venv
+report.csv
+
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
