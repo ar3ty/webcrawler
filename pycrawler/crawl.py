@@ -1,8 +1,8 @@
-import urllib.parse as up
+from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup as bs
 
 def normalize_url(url: str) -> str:
-    parsedURL = up.urlparse(url)
+    parsedURL = urlparse(url)
     combined = parsedURL.netloc + parsedURL.path
     return combined.rstrip('/').lower()
 
@@ -28,7 +28,7 @@ def get_urls_from_html(html, base_url):
     for url in urls:
         if href := url.get('href'):
             try:
-                absURL = up.urljoin(base_url, href)
+                absURL = urljoin(base_url, href)
                 result.append(absURL)
             except Exception as e:
                 print(f"{str(e)}: {href}")
@@ -43,7 +43,7 @@ def get_images_from_html(html, base_url):
     for url in urls:
         if src := url.get('src'):
             try:
-                absURL = up.urljoin(base_url, src)
+                absURL = urljoin(base_url, src)
                 result.append(absURL)
             except Exception as e:
                 print(f"{str(e)}: {src}")
