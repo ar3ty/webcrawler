@@ -1,14 +1,12 @@
 package main
 
 import (
-	"fmt"
 	"net/url"
-	"sort"
 	"sync"
 )
 
 type config struct {
-	pages              map[string]int
+	pages              map[string]PageData
 	baseURL            *url.URL
 	mu                 *sync.Mutex
 	concurrencyControl chan struct{}
@@ -21,23 +19,27 @@ func (cfg *config) addPageVisit(normalizedUrl string) (isFirst bool) {
 	defer cfg.mu.Unlock()
 
 	if _, ok := cfg.pages[normalizedUrl]; ok {
-		cfg.pages[normalizedUrl]++
 		return false
 	}
-	cfg.pages[normalizedUrl] = 1
+	cfg.pages[normalizedUrl] = PageData{URL: normalizedUrl}
 	return true
+}
+
+func (cfg *config) setPageData(normalizedURL string, data PageData) {
+	cfg.mu.Lock()
+	defer cfg.mu.Unlock()
+	cfg.pages[normalizedURL] = data
 }
 
 func (cfg *config) getLengthPages() int {
 	cfg.mu.Lock()
 	defer cfg.mu.Unlock()
-
 	return len(cfg.pages)
 }
 
 func configure(parsedBase *url.URL, maxConcurrency, maxPages int) *config {
 	return &config{
-		pages:              map[string]int{},
+		pages:              map[string]PageData{},
 		baseURL:            parsedBase,
 		mu:                 &sync.Mutex{},
 		concurrencyControl: make(chan struct{}, maxConcurrency),
@@ -46,6 +48,7 @@ func configure(parsedBase *url.URL, maxConcurrency, maxPages int) *config {
 	}
 }
 
+/*
 type Record struct {
 	URL   string
 	Count int
@@ -68,14 +71,14 @@ func (cfg *config) printReport() {
 	fmt.Println("=============================")
 
 	records := []Record{}
-	for k, v := range cfg.pages {
+	for k, _ := range cfg.pages {
 		parsedKey, err := url.Parse(k)
 		if err != nil {
 			fmt.Printf("Error parsing key: %s\n", k)
 		}
 		records = append(records, Record{
-			URL:   cfg.baseURL.ResolveReference(parsedKey).String(),
-			Count: v,
+			URL: cfg.baseURL.ResolveReference(parsedKey).String(),
+			//Count: v,
 		})
 	}
 
@@ -85,3 +88,4 @@ func (cfg *config) printReport() {
 		fmt.Printf("Found %d internal links to %s\n", record.Count, record.URL)
 	}
 }
+*/

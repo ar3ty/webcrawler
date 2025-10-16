@@ -8,9 +8,43 @@ import (
 	"net/url"
 	"strings"
 
-	"golang.org/x/net/html"
-	"golang.org/x/net/html/atom"
+	"github.com/PuerkitoBio/goquery"
 )
+
+type PageData struct {
+	URL            string
+	H1             string
+	FirstParagraph string
+	OutgoingLinks  []string
+	ImageURLs      []string
+}
+
+func getH1FromHTML(html string) string {
+	reader := strings.NewReader(html)
+	doc, err := goquery.NewDocumentFromReader(reader)
+	if err != nil {
+		return ""
+	}
+	headers := doc.Find("h1").First().Text()
+	return strings.TrimSpace(headers)
+}
+
+func getFirstParagraphFromHTML(html string) string {
+	reader := strings.NewReader(html)
+	doc, err := goquery.NewDocumentFromReader(reader)
+	if err != nil {
+		return ""
+	}
+	main := doc.Find("main")
+	var p string
+	if main.Length() > 0 {
+		p = main.Find("p").First().Text()
+	} else {
+		p = doc.Find("p").First().Text()
+	}
+
+	return strings.TrimSpace(p)
+}
 
 func normalizeURL(toParse string) (string, error) {
 	if strings.Fields(toParse) == nil || toParse == " " {
@@ -30,37 +64,69 @@ func normalizeURL(toParse string) (string, error) {
 
 func getURLsFromHTML(htmlBody string, baseURL *url.URL) ([]string, error) {
 	reader := strings.NewReader(htmlBody)
-	tree, err := html.Parse(reader)
+	doc, err := goquery.NewDocumentFromReader(reader)
 	if err != nil {
-		return nil, fmt.Errorf("failure parsing htmlbody: %w", err)
+		return nil, err
 	}
 	urls := []string{}
-
-	var treeTraverse func(*html.Node)
-	treeTraverse = func(node *html.Node) {
-		if node.Type == html.ElementNode && node.DataAtom == atom.A {
-			for _, a := range node.Attr {
-				if a.Key == "href" {
-					parsed, err := url.Parse(a.Val)
-					if err != nil {
-						fmt.Printf("failure parsing url: %v\n", err)
-						continue
-					}
-					resolved := baseURL.ResolveReference(parsed)
-					if resolved.Scheme == "http" || resolved.Scheme == "https" {
-						urls = append(urls, resolved.String())
-					}
-				}
-			}
+	doc.Find("a").Each(func(_ int, s *goquery.Selection) {
+		link, ok := s.Attr("href")
+		if !ok || strings.TrimSpace(link) == "" {
+			return
 		}
-
-		for n := node.FirstChild; n != nil; n = n.NextSibling {
-			treeTraverse(n)
+		parsedLink, err := url.Parse(link)
+		if err != nil {
+			return
 		}
-	}
-	treeTraverse(tree)
-
+		resolved := baseURL.ResolveReference(parsedLink)
+		urls = append(urls, resolved.String())
+	})
 	return urls, nil
+}
+
+func getImagesFromHTML(htmlBody string, baseURL *url.URL) ([]string, error) {
+	reader := strings.NewReader(htmlBody)
+	doc, err := goquery.NewDocumentFromReader(reader)
+	if err != nil {
+		return nil, err
+	}
+	urls := []string{}
+	doc.Find("img").Each(func(_ int, s *goquery.Selection) {
+		link, ok := s.Attr("src")
+		if !ok || strings.TrimSpace(link) == "" {
+			return
+		}
+		parsedLink, err := url.Parse(link)
+		if err != nil {
+			return
+		}
+		resolved := baseURL.ResolveReference(parsedLink)
+		urls = append(urls, resolved.String())
+	})
+	return urls, nil
+}
+
+func extractPageData(html, pageURL string) PageData {
+	var pd PageData
+	parsedBase, err := url.Parse(pageURL)
+	if err != nil {
+		return pd
+	}
+	links, err := getURLsFromHTML(html, parsedBase)
+	if err != nil {
+		return pd
+	}
+	images, err := getImagesFromHTML(html, parsedBase)
+	if err != nil {
+		return pd
+	}
+	return PageData{
+		URL:            pageURL,
+		H1:             getH1FromHTML(html),
+		FirstParagraph: getFirstParagraphFromHTML(html),
+		OutgoingLinks:  links,
+		ImageURLs:      images,
+	}
 }
 
 func getHTML(rawURL string) (string, error) {
@@ -129,13 +195,11 @@ func (cfg *config) crawlPage(rawCurrentURL string) {
 		fmt.Printf("Error - getHTML: %v\n", err)
 		return
 	}
-	urls, err := getURLsFromHTML(html, cfg.baseURL)
-	if err != nil {
-		fmt.Printf("Error - getURLsFromHTML: %v\n", err)
-		return
-	}
 
-	for _, link := range urls {
+	pageData := extractPageData(html, rawCurrentURL)
+	cfg.setPageData(normalisedCurrent, pageData)
+
+	for _, link := range pageData.OutgoingLinks {
 		cfg.wg.Add(1)
 		go cfg.crawlPage(link)
 	}

@@ -37,5 +37,9 @@ func main() {
 	go cfg.crawlPage(baseURL)
 
 	cfg.wg.Wait()
-	cfg.printReport()
+	err = cfg.writeCSVReport("report.csv")
+	if err != nil {
+		fmt.Printf("%v\n", err)
+	}
+	fmt.Printf("Report written to %s\n", "report.csv")
 }
